@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Trip Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #dbeafe; 
+            color: #1e3a8a;
+        }
+
+        #bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+        }
+
+        .main-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+        }
+
+        .loader {
+            border: 4px solid rgba(59, 130, 246, 0.2);
+            border-top: 4px solid #2563eb; 
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .weather-icon svg { width: 4rem; height: 4rem; }
+
+        #itinerary-output {
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+        #itinerary-output .day-wrapper:not(:first-child) {
+             margin-top: 2rem;
+             padding-top: 2rem;
+             border-top: 1px solid rgba(37, 99, 235, 0.1);
+        }
+        #itinerary-output .day-header {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1d4ed8;
+            margin-bottom: 1.5rem;
+        }
+        #itinerary-output .activities-list {
+            margin-top: 1rem;
+        }
+        #itinerary-output .activity-item {
+            display: flex;
+            align-items: flex-start;
+            padding: 1rem;
+            background-color: rgba(219, 234, 254, 0.5);
+            border-radius: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+        #itinerary-output .activity-time {
+            flex-shrink: 0;
+            width: 10rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #1e40af;
+        }
+        #itinerary-output .activity-desc {
+            margin-left: 1rem;
+            color: #1f2937;
+            line-height: 1.6;
+        }
+        
+        @media (max-width: 640px) {
+            #itinerary-output .activity-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            #itinerary-output .activity-time {
+                width: auto;
+                margin-bottom: 0.5rem;
+                font-weight: 600;
+            }
+            #itinerary-output .activity-desc {
+                margin-left: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+    <div class="main-content container mx-auto px-4 py-8 md:py-12 max-w-4xl min-h-screen">
+
+        <header class="text-center mb-10">
+            <div class="flex justify-center items-center mb-2">
+                <svg class="w-12 h-12 md:w-14 md:h-14 text-slate-800" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 21.25C12 21.25 4 15.25 4 10C4 5.58172 7.58172 2 12 2C16.4183 2 20 5.58172 20 10C20 15.25 12 21.25 12 21.25Z" stroke="#1e3a8a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" stroke="#2563eb" stroke-width="2"/>
+                    <path d="M12 6V4" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M12 18V16" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M16.5 10H18.5" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M5.5 10H7.5" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                <span class="text-3xl md:text-4xl font-bold text-slate-800 ml-3">SmartRoamer</span>
+            </div>
+            <p class="text-lg text-slate-600">Your intelligent travel companion.</p>
+        </header>
+
+        <form id="planner-form" class="glass-card p-6 md:p-8 rounded-2xl mb-10">
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="md:col-span-2">
+                    <label for="location" class="block text-sm font-medium text-gray-700 mb-2">Destination</label>
+                    <input type="text" id="location" name="location" class="w-full bg-white/60 border border-gray-300 text-gray-900 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200" placeholder="e.g., Kyoto, Japan">
+                </div>
+                <div>
+                    <label for="days" class="block text-sm font-medium text-gray-700 mb-2">Number of Days</label>
+                    <input type="number" id="days" name="days" class="w-full bg-white/60 border border-gray-300 text-gray-900 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-200" placeholder="e.g., 7" min="1">
+                </div>
+            </div>
+            <div class="mt-8 text-center">
+                <button type="submit" id="generate-btn" class="bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 px-8 rounded-full transition-all transform hover:scale-105 duration-300 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                    Generate Itinerary
+                </button>
+            </div>
+        </form>
+
+        <div id="error-message" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative mb-6" role="alert">
+            <strong class="font-bold">Oops! </strong>
+            <span class="block sm:inline" id="error-text"></span>
+        </div>
+
+        <div id="results-container" class="hidden space-y-8">
+            <div id="weather-widget" class="glass-card p-6 rounded-2xl flex flex-col justify-center items-center">
+                 <div id="weather-loader" class="flex flex-col justify-center items-center h-full">
+                    <div class="loader"></div>
+                    <p class="mt-3 text-gray-500 text-sm">Fetching weather...</p>
+                </div>
+                <div id="weather-content" class="hidden text-center">
+                    <p class="font-semibold text-gray-700 mb-2">Current Weather</p>
+                    <div id="weather-icon" class="weather-icon mx-auto text-blue-500"></div>
+                    <p id="weather-temp" class="text-5xl font-bold text-gray-800"></p>
+                    <p id="weather-desc" class="text-gray-600 capitalize"></p>
+                </div>
+                <div id="weather-error" class="hidden text-center p-4">
+                     <p class="font-semibold text-red-600" id="weather-error-text"></p>
+                </div>
+            </div>
+
+            <div id="itinerary-section" class="glass-card p-6 md:p-8 rounded-2xl">
+                 <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-slate-800">Your Trip Itinerary</h2>
+                    <button id="download-pdf-btn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300 flex items-center">
+                        <svg class="w-5 h-5 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" /><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" /></svg>
+                        Download PDF
+                    </button>
+                 </div>
+                 <div id="itinerary-loader" class="flex flex-col justify-center items-center py-16">
+                    <div class="loader"></div>
+                    <p class="mt-3 text-gray-500 text-sm">Generating itinerary...</p>
+                </div>
+                 <div id="itinerary-error" class="hidden text-center py-16 px-4 bg-red-100/50 rounded-lg">
+                     <p class="font-semibold text-red-600" id="itinerary-error-text"></p>
+                </div>
+                <div id="itinerary-output"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+  
+        let scene, camera, renderer, stars, nebula;
+
+        function initBackground() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 1000);
+            camera.position.z = 5;
+
+            renderer = new THREE.WebGLRenderer({
+                canvas: document.getElementById('bg-canvas'),
+                alpha: true,
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+        
+            const starGeometry = new THREE.BufferGeometry();
+            const starVertices = [];
+            for (let i = 0; i < 10000; i++) {
+                const x = (Math.random() - 0.5) * 2000;
+                const y = (Math.random() - 0.5) * 2000;
+                const z = (Math.random() - 0.5) * 2000;
+                starVertices.push(x, y, z);
+            }
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            const starMaterial = new THREE.PointsMaterial({ color: 0xaaaaff, size: 0.7 });
+            stars = new THREE.Points(starGeometry, starMaterial);
+            scene.add(stars);
+
+    
+            const nebulaGeometry = new THREE.BufferGeometry();
+            const nebulaVertices = [];
+            for (let i = 0; i < 200; i++) {
+                const x = (Math.random() - 0.5) * 100;
+                const y = (Math.random() - 0.5) * 100;
+                const z = (Math.random() - 0.5) * 100;
+                nebulaVertices.push(x, y, z);
+            }
+            nebulaGeometry.setAttribute('position', new THREE.Float32BufferAttribute(nebulaVertices, 3));
+            const nebulaMaterial = new THREE.PointsMaterial({
+                color: 0x6366f1, // Indigo
+                size: 15,
+                map: createCircleTexture(),
+                transparent: true,
+                opacity: 0.1,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+            });
+            nebula = new THREE.Points(nebulaGeometry, nebulaMaterial);
+            scene.add(nebula);
+
+            animateBackground();
+        }
+
+        function createCircleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const context = canvas.getContext('2d');
+            const gradient = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(1, 'rgba(255,255,255,0)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 128, 128);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function animateBackground() {
+            requestAnimationFrame(animateBackground);
+            stars.rotation.y += 0.0001;
+            nebula.rotation.y += 0.0002;
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        initBackground();
+
+        const plannerForm = document.getElementById('planner-form');
+        const generateBtn = document.getElementById('generate-btn');
+        const resultsContainer = document.getElementById('results-container');
+        
+        const weatherWidget = { loader: document.getElementById('weather-loader'), content: document.getElementById('weather-content'), error: document.getElementById('weather-error'), errorText: document.getElementById('weather-error-text'), icon: document.getElementById('weather-icon'), temp: document.getElementById('weather-temp'), desc: document.getElementById('weather-desc') };
+        const itinerarySection = { loader: document.getElementById('itinerary-loader'), error: document.getElementById('itinerary-error'), errorText: document.getElementById('itinerary-error-text'), output: document.getElementById('itinerary-output') };
+        
+        const downloadPdfBtn = document.getElementById('download-pdf-btn');
+        const errorMessage = document.getElementById('error-message');
+        const errorText = document.getElementById('error-text');
+        
+        let itineraryData = null;
+
+        plannerForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const location = document.getElementById('location').value.trim();
+            const days = document.getElementById('days').value;
+
+            if (!validateInputs(location, days)) return;
+            resetUI();
+            
+            await Promise.allSettled([
+                generateItinerary(location, days),
+                generateWeather(location)
+            ]);
+            setLoadingState(false);
+        });
+
+        downloadPdfBtn.addEventListener('click', () => {
+            if (itineraryData) {
+                downloadPDF(itineraryData);
+            } else {
+                showError("No itinerary data available to download.");
+            }
+        });
+
+        function resetUI() {
+            setLoadingState(true);
+            hideError();
+            resultsContainer.classList.remove('hidden');
+            downloadPdfBtn.classList.add('hidden');
+            itineraryData = null;
+
+            [weatherWidget, itinerarySection].forEach(section => {
+                section.loader.style.display = 'flex';
+                if(section.content) section.content.classList.add('hidden');
+                if(section.output) section.output.innerHTML = '';
+                section.error.classList.add('hidden');
+            });
+        }
+
+        function validateInputs(location, days) {
+            if (!location || !days) {
+                showError('Please fill in both the destination and the number of days.');
+                return false;
+            }
+            return true;
+        }
+        
+        async function handleApiResponse(response) {
+            if (!response.ok) {
+                const errorBody = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
+                const errorMessage = errorBody.error?.message || `API request failed with status ${response.status}`;
+                throw new Error(errorMessage);
+            }
+            return response.json();
+        }
+
+        function extractJson(text) {
+            const match = text.match(/\{[\s\S]*\}/);
+            if (match) {
+                return JSON.parse(match[0]);
+            }
+            throw new Error("Could not find a valid JSON object in the response.");
+        }
+
+        async function generateItinerary(location, days) {
+            try {
+                const response = await fetch('/api/itinerary', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ location, days }) 
+                });
+                const result = await handleApiResponse(response);
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error('Invalid API response structure.');
+                
+                const data = extractJson(text);
+                itineraryData = data;
+                buildItineraryHTML(data);
+                downloadPdfBtn.classList.remove('hidden');
+
+            } catch (err) {
+                console.error("Itinerary Error:", err);
+                itinerarySection.errorText.textContent = `Itinerary Error: ${err.message}`;
+                itinerarySection.error.classList.remove('hidden');
+            } finally {
+                itinerarySection.loader.style.display = 'none';
+            }
+        }
+
+        function buildItineraryHTML(data) {
+            const container = itinerarySection.output;
+            container.innerHTML = ''; 
+
+            if (data.introduction) {
+                const introParagraph = document.createElement('p');
+                introParagraph.className = 'text-lg text-center italic text-slate-600 mb-8';
+                introParagraph.textContent = data.introduction;
+                container.appendChild(introParagraph);
+            }
+
+            if (data.itinerary && Array.isArray(data.itinerary)) {
+                data.itinerary.forEach(dayData => {
+                    const dayWrapper = document.createElement('div');
+                    dayWrapper.className = 'day-wrapper';
+
+                    const dayHeader = document.createElement('h2');
+                    dayHeader.className = 'day-header';
+                    dayHeader.textContent = `${dayData.day}: ${dayData.title}`;
+                    dayWrapper.appendChild(dayHeader);
+
+                    if (dayData.activities && Array.isArray(dayData.activities)) {
+                        const activitiesList = document.createElement('ul');
+                        activitiesList.className = 'activities-list';
+                        
+                        dayData.activities.forEach(activityData => {
+                            const activityItem = document.createElement('li');
+                            activityItem.className = 'activity-item';
+                            
+                            const timeDiv = document.createElement('div');
+                            timeDiv.className = 'activity-time';
+                            timeDiv.textContent = activityData.time;
+
+                            const descDiv = document.createElement('div');
+                            descDiv.className = 'activity-desc';
+                            descDiv.textContent = activityData.description;
+
+                            activityItem.appendChild(timeDiv);
+                            activityItem.appendChild(descDiv);
+                            activitiesList.appendChild(activityItem);
+                        });
+                        dayWrapper.appendChild(activitiesList);
+                    }
+                    container.appendChild(dayWrapper);
+                });
+            }
+        }
+
+        async function generateWeather(location) {
+            try {
+                const response = await fetch('/api/weather', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ location }) 
+                });
+                const result = await handleApiResponse(response);
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error('Invalid API response structure.');
+                
+                const weatherData = extractJson(text);
+                
+                weatherWidget.temp.textContent = `${Math.round(weatherData.temp_celsius)}°C`;
+                weatherWidget.desc.textContent = weatherData.description;
+                weatherWidget.icon.innerHTML = getWeatherIcon(weatherData.description.toLowerCase());
+                weatherWidget.content.classList.remove('hidden');
+
+            } catch (err) {
+                console.error("Weather Error:", err);
+                weatherWidget.errorText.textContent = `Weather Error: ${err.message}`;
+                weatherWidget.error.classList.remove('hidden');
+            } finally {
+                weatherWidget.loader.style.display = 'none';
+            }
+        }
+        
+        function downloadPDF(data) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+            
+            const pageHeight = doc.internal.pageSize.height;
+            const pageWidth = doc.internal.pageSize.width;
+            const margin = 15;
+            const contentWidth = pageWidth - (margin * 2);
+            let y = margin;
+
+            function checkPageBreak(neededHeight) {
+                if (y + neededHeight > pageHeight - margin) {
+                    doc.addPage();
+                    y = margin;
+                }
+            }
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(20);
+            doc.text("Your Trip Itinerary", pageWidth / 2, y, { align: 'center' });
+            y += 12;
+
+            if (data.introduction) {
+                doc.setFont("helvetica", "italic");
+                doc.setFontSize(11);
+                const introLines = doc.splitTextToSize(data.introduction, contentWidth);
+                checkPageBreak(introLines.length * 5);
+                doc.text(introLines, margin, y);
+                y += (introLines.length * 5) + 10;
+            }
+
+            if (data.itinerary && Array.isArray(data.itinerary)) {
+                data.itinerary.forEach(day => {
+                    checkPageBreak(15);
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(14);
+                    doc.text(`${day.day}: ${day.title}`, margin, y);
+                    y += 8;
+
+                    if (day.activities && Array.isArray(day.activities)) {
+                        day.activities.forEach(activity => {
+                            doc.setFont("helvetica", "bold");
+                            doc.setFontSize(10);
+                            const timeLines = doc.splitTextToSize(activity.time, 40);
+
+                            doc.setFont("helvetica", "normal");
+                            const descLines = doc.splitTextToSize(activity.description, contentWidth - 45);
+                            
+                            const neededHeight = Math.max(timeLines.length, descLines.length) * 5 + 4;
+                            checkPageBreak(neededHeight);
+
+                            doc.setFont("helvetica", "bold");
+                            doc.text(timeLines, margin + 2, y);
+                            
+                            doc.setFont("helvetica", "normal");
+                            doc.text(descLines, margin + 45, y);
+                            
+                            y += neededHeight;
+                        });
+                    }
+                    y += 5;
+                });
+            }
+
+            doc.save("Trip-Itinerary.pdf");
+        }
+
+        function getWeatherIcon(description) {
+            if (description.includes('sun') || description.includes('clear')) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.106a.75.75 0 010 1.06l-1.591 1.59a.75.75 0 11-1.06-1.06l1.59-1.591a.75.75 0 011.06 0zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5h2.25a.75.75 0 01.75.75zM17.834 18.894a.75.75 0 011.06 0l1.59 1.59a.75.75 0 01-1.06 1.06l-1.59-1.59a.75.75 0 010-1.06zM12 21.75a.75.75 0 01-.75-.75v-2.25a.75.75 0 011.5 0v2.25a.75.75 0 01-.75.75zM5.106 17.834a.75.75 0 010-1.06l1.59-1.591a.75.75 0 111.06 1.06l-1.59 1.59a.75.75 0 01-1.06 0zM2.25 12a.75.75 0 01.75-.75h2.25a.75.75 0 010 1.5H3a.75.75 0 01-.75-.75zM6.106 5.106a.75.75 0 011.06 0l1.591 1.59a.75.75 0 01-1.06 1.06L5.106 6.166a.75.75 0 010-1.06z"/></svg>`;
+            if (description.includes('cloud')) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M15.94 8.654a.75.75 0 01.53 1.28l-4.5 4.5a.75.75 0 01-1.06 0l-2.25-2.25a.75.75 0 111.06-1.06l1.72 1.72 3.97-3.97a.75.75 0 01.53-.22z" clip-rule="evenodd" /><path d="M1.5 12.5a.75.75 0 01.75-.75h.008a.75.75 0 010 1.5H2.25a.75.75 0 01-.75-.75zM4.508 15.75a.75.75 0 01.75-.75h.008a.75.75 0 010 1.5h-.008a.75.75 0 01-.75-.75zM7.5 18.75a.75.75 0 01.75-.75h.008a.75.75 0 010 1.5H8.25a.75.75 0 01-.75-.75zM12 3.75a.75.75 0 01.75.75v.008a.75.75 0 01-1.5 0V4.5a.75.75 0 01.75-.75zM16.5 3.75a.75.75 0 01.75.75v.008a.75.75 0 01-1.5 0V4.5a.75.75 0 01.75-.75zM19.5 6.75a.75.75 0 01.75.75v.008a.75.75 0 01-1.5 0V7.5a.75.75 0 01.75-.75zM22.5 12.75a.75.75 0 01-.75-.75h-.008a.75.75 0 010-1.5h.008a.75.75 0 01.75.75zM19.5 15.75a.75.75 0 01.75.75h-.008a.75.75 0 010 1.5h.008a.75.75 0 01-.75-.75zM16.5 18.75a.75.75 0 01.75.75h-.008a.75.75 0 010 1.5h.008a.75.75 0 01-.75-.75zM12 20.25a.75.75 0 01.75.75v.008a.75.75 0 01-1.5 0v-.008a.75.75 0 01.75-.75zM7.5 5.25a.75.75 0 01.75.75v.008a.75.75 0 01-1.5 0V6a.75.75 0 01.75-.75zM4.5 8.25a.75.75 0 01.75.75v.008a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75z" /></svg>`;
+            if (description.includes('rain')) return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.75a.75.75 0 01.75.75v10.19l4.47-4.47a.75.75 0 111.06 1.06l-5.75 5.75a.75.75 0 01-1.06 0L5.22 11.13a.75.75 0 111.06-1.06l4.47 4.47V4.5a.75.75 0 01.75-.75zM12 21.75a.75.75 0 01-.75-.75v-2.25a.75.75 0 011.5 0v2.25a.75.75 0 01-.75-.75z" /></svg>`;
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M11.686 3.693A.75.75 0 0112.375 3h.01a.75.75 0 01.689.693l1.124 4.496 4.733.394a.75.75 0 01.488 1.293l-3.61 3.11 1.07 4.622a.75.75 0 01-1.12.814L12 15.428l-4.16 2.454a.75.75 0 01-1.12-.814l1.07-4.622-3.61-3.11a.75.75 0 01.488-1.293l4.733-.394L11.686 3.693z" clip-rule="evenodd"/></svg>`;
+        }
+
+        function setLoadingState(isLoading) {
+            generateBtn.disabled = isLoading;
+            generateBtn.textContent = isLoading ? 'Generating...' : 'Generate Itinerary';
+        }
+        
+        function showError(message) {
+            errorText.textContent = message;
+            errorMessage.classList.remove('hidden');
+            setLoadingState(false);
+        }
+
+        function hideError() {
+            errorMessage.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
